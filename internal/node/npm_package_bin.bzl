@@ -17,6 +17,7 @@ _ATTRS = {
     "link_workspace_root": attr.bool(),
     "output_dir": attr.bool(),
     "outs": attr.output_list(),
+    "out_dirs": attr.string_list(),
     "silent_on_success": attr.bool(),
     "stderr": attr.output(),
     "stdout": attr.output(),
@@ -49,9 +50,9 @@ def _inputs(ctx):
     return depset(ctx.files.data, transitive = inputs_depsets).to_list()
 
 def _impl(ctx):
-    if ctx.attr.output_dir and ctx.outputs.outs:
+    if ctx.attr.output_dir and (ctx.outputs.outs or ctx.attr.out_dirs):
         fail("Only one of output_dir and outs may be specified")
-    if not ctx.attr.output_dir and not len(ctx.outputs.outs) and not ctx.attr.stdout and not ctx.attr.stderr:
+    if not ctx.attr.output_dir and not len(ctx.outputs.outs) and not len(ctx.attr.out_dirs) and not ctx.attr.stdout and not ctx.attr.stderr:
         fail("One of output_dir, outs, stdout or stderr must be specified")
 
     args = ctx.actions.args()
@@ -60,11 +61,14 @@ def _impl(ctx):
 
     if ctx.attr.output_dir:
         outputs = [ctx.actions.declare_directory(ctx.attr.name)]
-    else:
-        outputs = ctx.outputs.outs
+    elif len(ctx.outputs.outs):
+        outputs = ctx.outputs.outs[:]
+    
+    for d in ctx.attr.out_dirs:
+        outputs.append(ctx.actions.declare_directory(d))
 
     for a in ctx.attr.args:
-        args.add_all([expand_variables(ctx, e, outs = ctx.outputs.outs, output_dir = ctx.attr.output_dir) for e in _expand_locations(ctx, a)])
+        args.add_all([expand_variables(ctx, e, outs = outputs, output_dir = ctx.attr.output_dir) for e in _expand_locations(ctx, a)])
 
     envs = {}
     for k, v in ctx.attr.env.items():
@@ -114,6 +118,7 @@ def npm_package_bin(
         data = [],
         env = {},
         outs = [],
+        out_dirs = [],
         args = [],
         stderr = None,
         stdout = None,
@@ -143,6 +148,7 @@ def npm_package_bin(
         output_dir: set to True if you want the output to be a directory
                  Exactly one of `outs`, `output_dir` may be used.
                  If you output a directory, there can only be one output, which will be a directory named the same as the target.
+        out_dirs: [MERWORK PATCH] allows adding a list of dirs as output, as dirs do not work in the outs setting.
         stderr: set to capture the stderr of the binary to a file, which can later be used as an input to another target
                 subject to the same semantics as `outs`
         stdout: set to capture the stdout of the binary to a file, which can later be used as an input to another target
@@ -236,6 +242,7 @@ def npm_package_bin(
     _npm_package_bin(
         data = data,
         outs = outs,
+        out_dirs = out_dirs,
         args = args,
         chdir = chdir,
         env = env,
